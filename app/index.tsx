@@ -1,6 +1,6 @@
 import { Fit, RiveView, useRive, useRiveFile } from "@rive-app/react-native";
-import React, { useCallback, useEffect, useRef } from "react";
-import { StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import {
   AudioContext,
   AudioManager,
@@ -41,6 +41,10 @@ export default function VoiceCharacter() {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { riveFile } = useRiveFile(require("../assets/rive/hear_and_talk.riv"));
   const { riveViewRef, setHybridRef } = useRive();
+  const [isAudioReady, setIsAudioReady] = useState(false);
+  const [isRiveReady, setIsRiveReady] = useState(false);
+  const didInitAudioRef = useRef(false);
+  const riveInputRef = useRef<typeof riveViewRef>(null);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
@@ -60,19 +64,32 @@ export default function VoiceCharacter() {
     null,
   );
 
+  useEffect(() => {
+    riveInputRef.current = riveViewRef;
+    setIsRiveReady(Boolean(riveViewRef));
+    if (!riveViewRef) {
+      return;
+    }
+
+    Object.keys(CharacterStates).forEach((key) => {
+      riveViewRef.setBooleanInputValue(key, false);
+    });
+    riveViewRef.setBooleanInputValue(stateRef.current, true);
+  }, [riveViewRef]);
+
   const resetInputs = useCallback(() => {
     Object.keys(CharacterStates).forEach((key) => {
-      riveViewRef?.setBooleanInputValue(key, false);
+      riveInputRef.current?.setBooleanInputValue(key, false);
     });
-  }, [riveViewRef]);
+  }, []);
 
   const setState = useCallback(
     (next: CharacterState) => {
       stateRef.current = next;
       resetInputs();
-      riveViewRef?.setBooleanInputValue(next, true);
+      riveInputRef.current?.setBooleanInputValue(next, true);
     },
-    [resetInputs, riveViewRef],
+    [resetInputs],
   );
 
   const clearRecordingBuffer = useCallback(() => {
@@ -349,10 +366,16 @@ export default function VoiceCharacter() {
   );
 
   useEffect(() => {
+    if (didInitAudioRef.current) {
+      return;
+    }
+    didInitAudioRef.current = true;
+
     let isMounted = true;
 
     const init = async () => {
       try {
+        setIsAudioReady(false);
         const permission = await AudioManager.requestRecordingPermissions();
 
         if (permission !== "Granted") {
@@ -410,6 +433,7 @@ export default function VoiceCharacter() {
 
         audioCtxRef.current = ctx;
         recorderRef.current = recorder;
+        setIsAudioReady(true);
       } catch (error) {
         console.error("Audio init error:", error);
       }
@@ -442,6 +466,8 @@ export default function VoiceCharacter() {
       }
 
       recorderRef.current = null;
+      setIsAudioReady(false);
+      setIsRiveReady(false);
       clearRecordingBuffer();
       clearPreRollBuffer();
 
@@ -457,12 +483,20 @@ export default function VoiceCharacter() {
 
   return (
     <View style={styles.container}>
+      {(!isAudioReady || !isRiveReady) && (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="large" color="#264653" />
+        </View>
+      )}
       {riveFile && (
         <RiveView
           hybridRef={setHybridRef}
           file={riveFile}
           fit={Fit.Contain}
-          style={styles.character}
+          style={[
+            styles.character,
+            !isAudioReady || !isRiveReady ? styles.characterHidden : null,
+          ]}
           autoPlay={true}
         />
       )}
@@ -477,8 +511,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  loaderContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    ...StyleSheet.absoluteFillObject,
+  },
   character: {
     width: "100%",
     height: "100%",
+  },
+  characterHidden: {
+    opacity: 0,
   },
 });
