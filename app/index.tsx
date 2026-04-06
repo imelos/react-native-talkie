@@ -14,9 +14,8 @@ AudioManager.setAudioSessionOptions({
   iosOptions: ["defaultToSpeaker"],
 });
 
-const START_VOLUME_THRESHOLD = 0.02;
-const CONTINUE_VOLUME_THRESHOLD = 0.012;
-const SILENCE_TIMEOUT_MS = 700;
+const VOLUME_THRESHOLD = 0.02;
+const SILENCE_TIMEOUT_MS = 1000;
 const PRE_ROLL_MS = 180;
 const END_PADDING_MS = 220;
 const RESUME_GUARD_MS = 250;
@@ -31,7 +30,6 @@ const CharacterStates = {
 };
 
 type CharacterState = keyof typeof CharacterStates;
-type RecorderStatus = "inactive" | "recording" | "paused";
 
 type AudioChunkHandler = Parameters<AudioRecorder["onAudioReady"]>[1];
 
@@ -46,7 +44,6 @@ export default function VoiceCharacter() {
     AudioContext["createBufferSource"]
   > | null>(null);
   const stateRef = useRef<CharacterState>("Check");
-  const recorderStatusRef = useRef<RecorderStatus>("inactive");
   const preRollChunksRef = useRef<Float32Array[]>([]);
   const preRollFramesRef = useRef(0);
   const chunksRef = useRef<Float32Array[]>([]);
@@ -54,6 +51,7 @@ export default function VoiceCharacter() {
   const lastVoiceFrameRef = useRef(0);
   const lastVoiceAtRef = useRef(0);
   const ignoreInputUntilRef = useRef(0);
+  const preparingPlaybackRef = useRef(false);
 
   const resetInputs = useCallback(() => {
     Object.keys(CharacterStates).forEach((key) => {
@@ -67,7 +65,7 @@ export default function VoiceCharacter() {
       resetInputs();
       riveViewRef?.setBooleanInputValue(next, true);
     },
-    [riveViewRef],
+    [resetInputs, riveViewRef],
   );
 
   const clearRecordingBuffer = useCallback(() => {
@@ -104,6 +102,7 @@ export default function VoiceCharacter() {
   }, []);
 
   const finishPlayback = useCallback(() => {
+    preparingPlaybackRef.current = false;
     playbackSourceRef.current = null;
     clearRecordingBuffer();
     clearPreRollBuffer();
@@ -155,6 +154,10 @@ export default function VoiceCharacter() {
   const playBufferedSpeech = useCallback(async () => {
     const ctx = audioCtxRef.current;
 
+    if (preparingPlaybackRef.current) {
+      return;
+    }
+
     if (!ctx || recordedFramesRef.current === 0) {
       clearRecordingBuffer();
       setState("Check");
@@ -162,6 +165,8 @@ export default function VoiceCharacter() {
     }
 
     try {
+      preparingPlaybackRef.current = true;
+
       const paddingFrames = Math.floor(
         (ctx.sampleRate * END_PADDING_MS) / 1000,
       );
@@ -189,12 +194,11 @@ export default function VoiceCharacter() {
       }
 
       if (writeOffset === 0) {
+        preparingPlaybackRef.current = false;
         clearRecordingBuffer();
         setState("Check");
         return;
       }
-
-      setState("Talk");
 
       const renderedBuffer = await renderDetunedBuffer(
         playbackBuffer,
@@ -210,6 +214,7 @@ export default function VoiceCharacter() {
       source.onEnded = finishPlayback;
 
       playbackSourceRef.current = source;
+      setState("Talk");
       source.start();
     } catch (error) {
       console.error("playBufferedSpeech error:", error);
@@ -223,13 +228,12 @@ export default function VoiceCharacter() {
         return;
       }
 
-      if (stateRef.current === "Talk") {
+      if (stateRef.current === "Talk" || preparingPlaybackRef.current) {
         return;
       }
 
       const chunk = new Float32Array(event.numFrames);
       event.buffer.copyFromChannel(chunk, 0);
-      appendPreRollChunk(chunk, event.sampleRate);
 
       let sumSquares = 0;
       for (let index = 0; index < chunk.length; index += 1) {
@@ -241,7 +245,9 @@ export default function VoiceCharacter() {
       const now = Date.now();
 
       if (stateRef.current === "Check") {
-        if (rms < START_VOLUME_THRESHOLD) {
+        appendPreRollChunk(chunk, event.sampleRate);
+
+        if (rms < VOLUME_THRESHOLD) {
           return;
         }
 
@@ -261,7 +267,7 @@ export default function VoiceCharacter() {
       chunksRef.current.push(chunk);
       recordedFramesRef.current += chunk.length;
 
-      if (rms >= CONTINUE_VOLUME_THRESHOLD) {
+      if (rms >= VOLUME_THRESHOLD) {
         lastVoiceAtRef.current = now;
         lastVoiceFrameRef.current = recordedFramesRef.current;
         return;
@@ -331,7 +337,6 @@ export default function VoiceCharacter() {
 
         if (!isMounted) {
           recorder.stop();
-          recorderStatusRef.current = "inactive";
           recorder.clearOnAudioReady();
           recorder.clearOnError();
           await ctx.close();
@@ -340,7 +345,6 @@ export default function VoiceCharacter() {
 
         audioCtxRef.current = ctx;
         recorderRef.current = recorder;
-        recorderStatusRef.current = "recording";
       } catch (error) {
         console.error("Audio init error:", error);
       }
@@ -364,10 +368,7 @@ export default function VoiceCharacter() {
       if (recorder) {
         recorder.clearOnAudioReady();
         recorder.clearOnError();
-        if (recorderStatusRef.current !== "inactive") {
-          recorder.stop();
-          recorderStatusRef.current = "inactive";
-        }
+        recorder.stop();
       }
 
       recorderRef.current = null;
