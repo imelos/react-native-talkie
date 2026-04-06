@@ -1,4 +1,8 @@
-Used OfflineAudioContext to render pitch-shifted audio offline and avoid real-time pitch-correction spikes.
+`expo prebuild` is required
+
+Used `react-native-audio-api` as this lib has reliable way for pitch sifting via `.detune` prop
+
+Used `OfflineAudioContext` to render pitch-shifted audio offline and avoid real-time pitch-correction spikes.
 
 The character renders only after audio initialization completes; if microphone permission is denied, a button appears that opens the system Settings screen.
 
