@@ -41,7 +41,7 @@ const CharacterStates = {
   Talk: "Talk",
 } as const;
 
-type CharacterState = keyof typeof CharacterStates;
+type CharacterState = (typeof CharacterStates)[keyof typeof CharacterStates];
 
 type AudioChunkHandler = Parameters<AudioRecorder["onAudioReady"]>[1];
 
@@ -539,9 +539,7 @@ export default function VoiceCharacter() {
         <View style={styles.loaderContainer}>
           <Pressable
             accessibilityRole="button"
-            onPress={() => {
-              void Linking.openSettings();
-            }}
+            onPress={Linking.openSettings}
             style={({ pressed }) => [
               styles.permissionButton,
               pressed ? styles.permissionButtonPressed : null,
