@@ -14,10 +14,11 @@ AudioManager.setAudioSessionOptions({
   iosOptions: ["defaultToSpeaker"],
 });
 
-const VOLUME_THRESHOLD = 0.02;
+const START_VOICE_THRESHOLD = 0.02;
+const CONTINUE_VOICE_THRESHOLD = 0.012;
 const SILENCE_TIMEOUT_MS = 1000;
 const PRE_ROLL_MS = 180;
-const END_PADDING_MS = 220;
+const END_PADDING_MS = 320;
 const RESUME_GUARD_MS = 250;
 const DETUNE_CENTS = 700;
 const MONITOR_BUFFER_LENGTH = 1024;
@@ -180,7 +181,7 @@ export default function VoiceCharacter() {
       }
 
       const rms = Math.sqrt(sumSquares / Math.max(end - start, 1));
-      if (rms >= VOLUME_THRESHOLD) {
+      if (rms >= CONTINUE_VOICE_THRESHOLD) {
         return start;
       }
     }
@@ -311,7 +312,7 @@ export default function VoiceCharacter() {
       if (stateRef.current === "Check") {
         appendPreRollChunk(chunk, event.buffer.sampleRate);
 
-        if (rms < VOLUME_THRESHOLD) {
+        if (rms < START_VOICE_THRESHOLD) {
           return;
         }
 
@@ -331,7 +332,7 @@ export default function VoiceCharacter() {
       chunksRef.current.push(chunk);
       recordedFramesRef.current += chunk.length;
 
-      if (rms >= VOLUME_THRESHOLD) {
+      if (rms >= CONTINUE_VOICE_THRESHOLD) {
         lastVoiceAtRef.current = now;
         lastVoiceFrameRef.current = recordedFramesRef.current;
         return;
