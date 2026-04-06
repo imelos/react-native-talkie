@@ -32,14 +32,14 @@ const DETUNE_CENTS = 700;
 const MONITOR_BUFFER_LENGTH = 1024;
 const MONITOR_CHANNEL_COUNT = 1;
 const LEADING_VOICE_WINDOW_SIZE = 256;
-const TALK_ANIMATION_LEAD_MS = 40;
+const TALK_ANIMATION_LEAD_MS = 250;
 const PLAYBACK_SCHEDULE_AHEAD_MS = 30;
 
 const CharacterStates = {
   Check: "Check",
   Hear: "Hear",
   Talk: "Talk",
-};
+} as const;
 
 type CharacterState = keyof typeof CharacterStates;
 
