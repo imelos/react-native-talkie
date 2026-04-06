@@ -1,4 +1,4 @@
-Used a lightweight voice activity flow instead of full speech recognition - the task only needs phrase boundaries and fast mic reaction. Speech start and continuation use separate thresholds, with a short tail pad to prevent clipped phrase endings.
+Used OfflineAudioContext to render pitch-shifted audio offline and avoid real-time pitch-correction spikes.
 
 The character renders only after audio initialization completes; if microphone permission is denied, a button appears that opens the system Settings screen.
 
