@@ -2,6 +2,8 @@ import { Fit, RiveView, useRive, useRiveFile } from "@rive-app/react-native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   Pressable,
   StyleSheet,
   Text,
@@ -390,12 +392,15 @@ export default function VoiceCharacter() {
         console.warn("Microphone permission is not granted");
         if (isMountedRef.current) {
           setNeedsPermission(true);
+          Alert.alert(
+            "Microphone access needed",
+            "Microphone access was denied. You can enable it in the app settings.",
+          );
         }
         return;
       }
 
-      const sessionActivated =
-        await AudioManager.setAudioSessionActivity(true);
+      const sessionActivated = await AudioManager.setAudioSessionActivity(true);
 
       if (!sessionActivated) {
         console.warn("Could not activate audio session");
@@ -509,12 +514,13 @@ export default function VoiceCharacter() {
           <Pressable
             accessibilityRole="button"
             onPress={() => {
-              void initAudio();
+              void Linking.openSettings();
             }}
             style={({ pressed }) => [
               styles.permissionButton,
               pressed ? styles.permissionButtonPressed : null,
-            ]}>
+            ]}
+          >
             <Text style={styles.permissionButtonText}>
               GrantMicrophonePermission
             </Text>
