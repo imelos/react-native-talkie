@@ -33,7 +33,8 @@ const MONITOR_BUFFER_LENGTH = 1024;
 const MONITOR_CHANNEL_COUNT = 1;
 const LEADING_VOICE_WINDOW_SIZE = 256;
 const TALK_ANIMATION_LEAD_MS = 250;
-const PLAYBACK_SCHEDULE_AHEAD_MS = 30;
+const TALK_ANIMATION_TAIL_MS = 150;
+const PLAYBACK_SCHEDULE_AHEAD_MS = 40;
 
 const CharacterStates = {
   Check: "Check",
@@ -71,6 +72,9 @@ export default function VoiceCharacter() {
   const ignoreInputUntilRef = useRef(0);
   const preparingPlaybackRef = useRef(false);
   const talkStateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const talkStateResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
 
@@ -136,10 +140,14 @@ export default function VoiceCharacter() {
     preRollFramesRef.current = 0;
   }, []);
 
-  const finishPlayback = useCallback(() => {
+  const resetAfterPlayback = useCallback(() => {
     if (talkStateTimeoutRef.current) {
       clearTimeout(talkStateTimeoutRef.current);
       talkStateTimeoutRef.current = null;
+    }
+    if (talkStateResetTimeoutRef.current) {
+      clearTimeout(talkStateResetTimeoutRef.current);
+      talkStateResetTimeoutRef.current = null;
     }
     preparingPlaybackRef.current = false;
     playbackSourceRef.current = null;
@@ -148,6 +156,27 @@ export default function VoiceCharacter() {
     ignoreInputUntilRef.current = Date.now() + RESUME_GUARD_MS;
     setState("Check");
   }, [clearPreRollBuffer, clearRecordingBuffer, setState]);
+
+  const finishPlayback = useCallback(() => {
+    if (talkStateTimeoutRef.current) {
+      clearTimeout(talkStateTimeoutRef.current);
+      talkStateTimeoutRef.current = null;
+    }
+    if (talkStateResetTimeoutRef.current) {
+      clearTimeout(talkStateResetTimeoutRef.current);
+      talkStateResetTimeoutRef.current = null;
+    }
+
+    if (stateRef.current !== "Talk" || TALK_ANIMATION_TAIL_MS <= 0) {
+      resetAfterPlayback();
+      return;
+    }
+
+    talkStateResetTimeoutRef.current = setTimeout(() => {
+      talkStateResetTimeoutRef.current = null;
+      resetAfterPlayback();
+    }, TALK_ANIMATION_TAIL_MS);
+  }, [resetAfterPlayback]);
 
   const renderDetunedBuffer = useCallback(
     async (
@@ -471,6 +500,10 @@ export default function VoiceCharacter() {
       if (talkStateTimeoutRef.current) {
         clearTimeout(talkStateTimeoutRef.current);
         talkStateTimeoutRef.current = null;
+      }
+      if (talkStateResetTimeoutRef.current) {
+        clearTimeout(talkStateResetTimeoutRef.current);
+        talkStateResetTimeoutRef.current = null;
       }
 
       const source = playbackSourceRef.current;
