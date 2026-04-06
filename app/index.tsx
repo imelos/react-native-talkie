@@ -33,7 +33,7 @@ const MONITOR_BUFFER_LENGTH = 1024;
 const MONITOR_CHANNEL_COUNT = 1;
 const LEADING_VOICE_WINDOW_SIZE = 256;
 const SOUND_AFTER_TALK_MS = 900;
-const TALK_ANIMATION_TAIL_MS = 250;
+const TALK_ANIMATION_TAIL_MS = 120;
 
 const CharacterStates = {
   Check: "Check",
