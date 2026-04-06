@@ -49,9 +49,9 @@ export default function VoiceCharacter() {
   const [isAudioReady, setIsAudioReady] = useState(false);
   const [isRiveReady, setIsRiveReady] = useState(false);
   const [needsPermission, setNeedsPermission] = useState(false);
-  const [isInitializingAudio, setIsInitializingAudio] = useState(true);
   const didInitAudioRef = useRef(false);
   const isMountedRef = useRef(true);
+  const isInitializingAudioRef = useRef(false);
   const riveInputRef = useRef<typeof riveViewRef>(null);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -79,6 +79,7 @@ export default function VoiceCharacter() {
       return;
     }
 
+    // Rive can mount after audio state changes, so reapply the current state here.
     Object.keys(CharacterStates).forEach((key) => {
       riveViewRef.setBooleanInputValue(key, false);
     });
@@ -374,8 +375,12 @@ export default function VoiceCharacter() {
   );
 
   const initAudio = useCallback(async () => {
+    if (isInitializingAudioRef.current) {
+      return;
+    }
+
+    isInitializingAudioRef.current = true;
     try {
-      setIsInitializingAudio(true);
       setNeedsPermission(false);
       setIsAudioReady(false);
 
@@ -443,9 +448,7 @@ export default function VoiceCharacter() {
     } catch (error) {
       console.error("Audio init error:", error);
     } finally {
-      if (isMountedRef.current) {
-        setIsInitializingAudio(false);
-      }
+      isInitializingAudioRef.current = false;
     }
   }, [handleAudioChunk]);
 
@@ -485,7 +488,7 @@ export default function VoiceCharacter() {
       setIsAudioReady(false);
       setIsRiveReady(false);
       setNeedsPermission(false);
-      setIsInitializingAudio(true);
+      isInitializingAudioRef.current = false;
       clearRecordingBuffer();
       clearPreRollBuffer();
 
@@ -518,7 +521,7 @@ export default function VoiceCharacter() {
           </Pressable>
         </View>
       )}
-      {!needsPermission && (!isAudioReady || !isRiveReady || isInitializingAudio) && (
+      {!needsPermission && (!isAudioReady || !isRiveReady) && (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#264653" />
         </View>
