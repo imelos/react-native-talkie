@@ -21,9 +21,11 @@ AudioManager.setAudioSessionOptions({
   iosOptions: ["defaultToSpeaker"],
 });
 
-const VOLUME_THRESHOLD = 0.02;
+const START_VOLUME_THRESHOLD = 0.02;
+const CONTINUE_VOLUME_THRESHOLD = 0.012;
 const SILENCE_TIMEOUT_MS = 1000;
-const END_PADDING_MS = 120;
+const PRE_ROLL_MS = 180;
+const END_PADDING_MS = 220;
 const RESUME_GUARD_MS = 250;
 const DETUNE_CENTS = 700;
 const MONITOR_BUFFER_LENGTH = 1024;
@@ -59,6 +61,8 @@ export default function VoiceCharacter() {
   > | null>(null);
   const stateRef = useRef<CharacterState>("idle");
   const recorderStatusRef = useRef<RecorderStatus>("inactive");
+  const preRollChunksRef = useRef<Float32Array[]>([]);
+  const preRollFramesRef = useRef(0);
   const chunksRef = useRef<Float32Array[]>([]);
   const recordedFramesRef = useRef(0);
   const lastVoiceFrameRef = useRef(0);
@@ -81,12 +85,39 @@ export default function VoiceCharacter() {
     lastVoiceAtRef.current = 0;
   }, []);
 
+  const appendPreRollChunk = useCallback(
+    (chunk: Float32Array, sampleRate: number) => {
+      preRollChunksRef.current.push(chunk);
+      preRollFramesRef.current += chunk.length;
+
+      const maxPreRollFrames = Math.floor((sampleRate * PRE_ROLL_MS) / 1000);
+
+      while (
+        preRollChunksRef.current.length > 0 &&
+        preRollFramesRef.current > maxPreRollFrames
+      ) {
+        const droppedChunk = preRollChunksRef.current.shift();
+        if (!droppedChunk) {
+          break;
+        }
+        preRollFramesRef.current -= droppedChunk.length;
+      }
+    },
+    [],
+  );
+
+  const clearPreRollBuffer = useCallback(() => {
+    preRollChunksRef.current = [];
+    preRollFramesRef.current = 0;
+  }, []);
+
   const finishPlayback = useCallback(() => {
     playbackSourceRef.current = null;
     clearRecordingBuffer();
+    clearPreRollBuffer();
     ignoreInputUntilRef.current = Date.now() + RESUME_GUARD_MS;
     setState("idle");
-  }, [clearRecordingBuffer, setState]);
+  }, [clearPreRollBuffer, clearRecordingBuffer, setState]);
 
   const renderDetunedBuffer = useCallback(
     async (
@@ -206,6 +237,7 @@ export default function VoiceCharacter() {
 
       const chunk = new Float32Array(event.numFrames);
       event.buffer.copyFromChannel(chunk, 0);
+      appendPreRollChunk(chunk, event.sampleRate);
 
       let sumSquares = 0;
       for (let index = 0; index < chunk.length; index += 1) {
@@ -217,14 +249,15 @@ export default function VoiceCharacter() {
       const now = Date.now();
 
       if (stateRef.current === "idle") {
-        if (rms < VOLUME_THRESHOLD) {
+        if (rms < START_VOLUME_THRESHOLD) {
           return;
         }
 
-        chunksRef.current = [chunk];
-        recordedFramesRef.current = chunk.length;
-        lastVoiceFrameRef.current = chunk.length;
+        chunksRef.current = [...preRollChunksRef.current];
+        recordedFramesRef.current = preRollFramesRef.current;
+        lastVoiceFrameRef.current = recordedFramesRef.current;
         lastVoiceAtRef.current = now;
+        clearPreRollBuffer();
         setState("listening");
         return;
       }
@@ -236,7 +269,7 @@ export default function VoiceCharacter() {
       chunksRef.current.push(chunk);
       recordedFramesRef.current += chunk.length;
 
-      if (rms >= VOLUME_THRESHOLD) {
+      if (rms >= CONTINUE_VOLUME_THRESHOLD) {
         lastVoiceAtRef.current = now;
         lastVoiceFrameRef.current = recordedFramesRef.current;
         return;
@@ -249,7 +282,7 @@ export default function VoiceCharacter() {
         void playBufferedSpeech();
       }
     },
-    [playBufferedSpeech, setState],
+    [appendPreRollChunk, clearPreRollBuffer, playBufferedSpeech, setState],
   );
 
   useEffect(() => {
@@ -347,6 +380,7 @@ export default function VoiceCharacter() {
 
       recorderRef.current = null;
       clearRecordingBuffer();
+      clearPreRollBuffer();
 
       const ctx = audioCtxRef.current;
       audioCtxRef.current = null;
@@ -356,7 +390,7 @@ export default function VoiceCharacter() {
 
       void AudioManager.setAudioSessionActivity(false);
     };
-  }, [clearRecordingBuffer, handleAudioChunk]);
+  }, [clearPreRollBuffer, clearRecordingBuffer, handleAudioChunk]);
 
   return (
     <View style={styles.container}>
