@@ -29,6 +29,7 @@ const MONITOR_BUFFER_LENGTH = 1024;
 const MONITOR_CHANNEL_COUNT = 1;
 
 type CharacterState = "idle" | "listening" | "playing";
+type RecorderStatus = "inactive" | "recording" | "paused";
 
 const STATE_INDEX: Record<CharacterState, number> = {
   idle: 0,
@@ -56,6 +57,7 @@ export default function VoiceCharacter() {
     AudioContext["createBufferSource"]
   > | null>(null);
   const stateRef = useRef<CharacterState>("idle");
+  const recorderStatusRef = useRef<RecorderStatus>("inactive");
   const chunksRef = useRef<Float32Array[]>([]);
   const recordedFramesRef = useRef(0);
   const lastVoiceFrameRef = useRef(0);
@@ -81,21 +83,23 @@ export default function VoiceCharacter() {
   const pauseMonitoring = useCallback(() => {
     const recorder = recorderRef.current;
 
-    if (!recorder || !recorder.isRecording()) {
+    if (!recorder || recorderStatusRef.current !== "recording") {
       return;
     }
 
     recorder.pause();
+    recorderStatusRef.current = "paused";
   }, []);
 
   const resumeMonitoring = useCallback(() => {
     const recorder = recorderRef.current;
 
-    if (!recorder || !recorder.isPaused()) {
+    if (!recorder || recorderStatusRef.current !== "paused") {
       return;
     }
 
     recorder.resume();
+    recorderStatusRef.current = "recording";
   }, []);
 
   const finishPlayback = useCallback(() => {
@@ -279,6 +283,7 @@ export default function VoiceCharacter() {
 
         if (!isMounted) {
           recorder.stop();
+          recorderStatusRef.current = "inactive";
           recorder.clearOnAudioReady();
           recorder.clearOnError();
           await ctx.close();
@@ -287,6 +292,7 @@ export default function VoiceCharacter() {
 
         audioCtxRef.current = ctx;
         recorderRef.current = recorder;
+        recorderStatusRef.current = "recording";
       } catch (error) {
         console.error("Audio init error:", error);
       }
@@ -310,8 +316,9 @@ export default function VoiceCharacter() {
       if (recorder) {
         recorder.clearOnAudioReady();
         recorder.clearOnError();
-        if (recorder.isRecording() || recorder.isPaused()) {
+        if (recorderStatusRef.current !== "inactive") {
           recorder.stop();
+          recorderStatusRef.current = "inactive";
         }
       }
 
