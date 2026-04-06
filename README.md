@@ -1,6 +1,6 @@
 `expo prebuild` is required
 
-Used `react-native-audio-api` as this lib has reliable way for pitch sifting via `.detune` prop
+Used `react-native-audio-api` as this lib has reliable way for pitch sifting via `.detune` prop. This approach was a better fit because it works directly on in-memory audio buffers, so pitch shifting and playback scheduling do not depend on creating temporary audio files.
 
 Used `OfflineAudioContext` to render pitch-shifted audio offline and avoid real-time pitch-correction spikes.
 
