@@ -1,6 +1,12 @@
 import { Fit, RiveView, useRive, useRiveFile } from "@rive-app/react-native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import {
   AudioContext,
   AudioManager,
@@ -38,12 +44,14 @@ type CharacterState = keyof typeof CharacterStates;
 type AudioChunkHandler = Parameters<AudioRecorder["onAudioReady"]>[1];
 
 export default function VoiceCharacter() {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { riveFile } = useRiveFile(require("../assets/rive/hear_and_talk.riv"));
   const { riveViewRef, setHybridRef } = useRive();
   const [isAudioReady, setIsAudioReady] = useState(false);
   const [isRiveReady, setIsRiveReady] = useState(false);
+  const [needsPermission, setNeedsPermission] = useState(false);
+  const [isInitializingAudio, setIsInitializingAudio] = useState(true);
   const didInitAudioRef = useRef(false);
+  const isMountedRef = useRef(true);
   const riveInputRef = useRef<typeof riveViewRef>(null);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -365,84 +373,92 @@ export default function VoiceCharacter() {
     [appendPreRollChunk, clearPreRollBuffer, playBufferedSpeech, setState],
   );
 
+  const initAudio = useCallback(async () => {
+    try {
+      setIsInitializingAudio(true);
+      setNeedsPermission(false);
+      setIsAudioReady(false);
+
+      const permission = await AudioManager.requestRecordingPermissions();
+
+      if (permission !== "Granted") {
+        console.warn("Microphone permission is not granted");
+        if (isMountedRef.current) {
+          setNeedsPermission(true);
+        }
+        return;
+      }
+
+      const sessionActivated =
+        await AudioManager.setAudioSessionActivity(true);
+
+      if (!sessionActivated) {
+        console.warn("Could not activate audio session");
+        return;
+      }
+
+      const ctx = new AudioContext();
+      await ctx.resume();
+
+      const recorder = new AudioRecorder();
+      recorder.onError((error) => {
+        console.error("AudioRecorder error:", error.message);
+      });
+
+      const callbackResult = recorder.onAudioReady(
+        {
+          sampleRate: ctx.sampleRate,
+          bufferLength: MONITOR_BUFFER_LENGTH,
+          channelCount: MONITOR_CHANNEL_COUNT,
+        },
+        handleAudioChunk,
+      );
+
+      if (callbackResult.status === "error") {
+        console.warn(callbackResult.message);
+        await ctx.close();
+        return;
+      }
+
+      const startResult = recorder.start();
+
+      if (startResult.status === "error") {
+        console.warn(startResult.message);
+        recorder.clearOnAudioReady();
+        await ctx.close();
+        return;
+      }
+
+      if (!isMountedRef.current) {
+        recorder.stop();
+        recorder.clearOnAudioReady();
+        recorder.clearOnError();
+        await ctx.close();
+        return;
+      }
+
+      audioCtxRef.current = ctx;
+      recorderRef.current = recorder;
+      setIsAudioReady(true);
+    } catch (error) {
+      console.error("Audio init error:", error);
+    } finally {
+      if (isMountedRef.current) {
+        setIsInitializingAudio(false);
+      }
+    }
+  }, [handleAudioChunk]);
+
   useEffect(() => {
     if (didInitAudioRef.current) {
       return;
     }
     didInitAudioRef.current = true;
-
-    let isMounted = true;
-
-    const init = async () => {
-      try {
-        setIsAudioReady(false);
-        const permission = await AudioManager.requestRecordingPermissions();
-
-        if (permission !== "Granted") {
-          console.warn("Microphone permission is not granted");
-          return;
-        }
-
-        const sessionActivated =
-          await AudioManager.setAudioSessionActivity(true);
-
-        if (!sessionActivated) {
-          console.warn("Could not activate audio session");
-          return;
-        }
-
-        const ctx = new AudioContext();
-        await ctx.resume();
-
-        const recorder = new AudioRecorder();
-        recorder.onError((error) => {
-          console.error("AudioRecorder error:", error.message);
-        });
-
-        const callbackResult = recorder.onAudioReady(
-          {
-            sampleRate: ctx.sampleRate,
-            bufferLength: MONITOR_BUFFER_LENGTH,
-            channelCount: MONITOR_CHANNEL_COUNT,
-          },
-          handleAudioChunk,
-        );
-
-        if (callbackResult.status === "error") {
-          console.warn(callbackResult.message);
-          await ctx.close();
-          return;
-        }
-
-        const startResult = recorder.start();
-
-        if (startResult.status === "error") {
-          console.warn(startResult.message);
-          recorder.clearOnAudioReady();
-          await ctx.close();
-          return;
-        }
-
-        if (!isMounted) {
-          recorder.stop();
-          recorder.clearOnAudioReady();
-          recorder.clearOnError();
-          await ctx.close();
-          return;
-        }
-
-        audioCtxRef.current = ctx;
-        recorderRef.current = recorder;
-        setIsAudioReady(true);
-      } catch (error) {
-        console.error("Audio init error:", error);
-      }
-    };
-
-    void init();
+    isMountedRef.current = true;
+    void initAudio();
 
     return () => {
-      isMounted = false;
+      isMountedRef.current = false;
 
       if (talkStateTimeoutRef.current) {
         clearTimeout(talkStateTimeoutRef.current);
@@ -468,6 +484,8 @@ export default function VoiceCharacter() {
       recorderRef.current = null;
       setIsAudioReady(false);
       setIsRiveReady(false);
+      setNeedsPermission(false);
+      setIsInitializingAudio(true);
       clearRecordingBuffer();
       clearPreRollBuffer();
 
@@ -479,11 +497,28 @@ export default function VoiceCharacter() {
 
       void AudioManager.setAudioSessionActivity(false);
     };
-  }, [clearPreRollBuffer, clearRecordingBuffer, handleAudioChunk]);
+  }, [clearPreRollBuffer, clearRecordingBuffer, initAudio]);
 
   return (
     <View style={styles.container}>
-      {(!isAudioReady || !isRiveReady) && (
+      {needsPermission && (
+        <View style={styles.loaderContainer}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              void initAudio();
+            }}
+            style={({ pressed }) => [
+              styles.permissionButton,
+              pressed ? styles.permissionButtonPressed : null,
+            ]}>
+            <Text style={styles.permissionButtonText}>
+              GrantMicrophonePermission
+            </Text>
+          </Pressable>
+        </View>
+      )}
+      {!needsPermission && (!isAudioReady || !isRiveReady || isInitializingAudio) && (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#264653" />
         </View>
@@ -515,6 +550,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     ...StyleSheet.absoluteFillObject,
+  },
+  permissionButton: {
+    backgroundColor: "#264653",
+    borderRadius: 999,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+  },
+  permissionButtonPressed: {
+    opacity: 0.85,
+  },
+  permissionButtonText: {
+    color: "#f4f7f9",
+    fontSize: 16,
+    fontWeight: "600",
   },
   character: {
     width: "100%",
