@@ -12,6 +12,7 @@ import {
   AudioContext,
   AudioManager,
   AudioRecorder,
+  OfflineAudioContext,
 } from "react-native-audio-api";
 
 AudioManager.setAudioSessionOptions({
@@ -80,35 +81,53 @@ export default function VoiceCharacter() {
     lastVoiceAtRef.current = 0;
   }, []);
 
-  const pauseMonitoring = useCallback(() => {
-    const recorder = recorderRef.current;
-
-    if (!recorder || recorderStatusRef.current !== "recording") {
-      return;
-    }
-
-    recorder.pause();
-    recorderStatusRef.current = "paused";
-  }, []);
-
-  const resumeMonitoring = useCallback(() => {
-    const recorder = recorderRef.current;
-
-    if (!recorder || recorderStatusRef.current !== "paused") {
-      return;
-    }
-
-    recorder.resume();
-    recorderStatusRef.current = "recording";
-  }, []);
-
   const finishPlayback = useCallback(() => {
     playbackSourceRef.current = null;
     clearRecordingBuffer();
     ignoreInputUntilRef.current = Date.now() + RESUME_GUARD_MS;
-    resumeMonitoring();
     setState("idle");
-  }, [clearRecordingBuffer, resumeMonitoring, setState]);
+  }, [clearRecordingBuffer, setState]);
+
+  const renderDetunedBuffer = useCallback(
+    async (
+      sourceBuffer: ReturnType<AudioContext["createBuffer"]>,
+      framesToKeep: number,
+      sampleRate: number,
+    ) => {
+      const offlineCtx = new OfflineAudioContext({
+        numberOfChannels: sourceBuffer.numberOfChannels,
+        length: framesToKeep,
+        sampleRate,
+      });
+      const offlineBuffer = offlineCtx.createBuffer(
+        sourceBuffer.numberOfChannels,
+        framesToKeep,
+        sampleRate,
+      );
+
+      for (
+        let channel = 0;
+        channel < sourceBuffer.numberOfChannels;
+        channel += 1
+      ) {
+        offlineBuffer.copyToChannel(
+          sourceBuffer.getChannelData(channel),
+          channel,
+        );
+      }
+
+      const offlineSource = offlineCtx.createBufferSource({
+        pitchCorrection: true,
+      });
+      offlineSource.buffer = offlineBuffer;
+      offlineSource.detune.value = DETUNE_CENTS;
+      offlineSource.connect(offlineCtx.destination);
+      offlineSource.start();
+
+      return offlineCtx.startRendering();
+    },
+    [],
+  );
 
   const playBufferedSpeech = useCallback(async () => {
     const ctx = audioCtxRef.current;
@@ -152,14 +171,18 @@ export default function VoiceCharacter() {
         return;
       }
 
-      pauseMonitoring();
       setState("playing");
+
+      const renderedBuffer = await renderDetunedBuffer(
+        playbackBuffer,
+        framesToKeep,
+        ctx.sampleRate,
+      );
 
       await ctx.resume();
 
-      const source = ctx.createBufferSource({ pitchCorrection: true });
-      source.buffer = playbackBuffer;
-      source.detune.value = DETUNE_CENTS;
+      const source = ctx.createBufferSource();
+      source.buffer = renderedBuffer;
       source.connect(ctx.destination);
       source.onEnded = finishPlayback;
 
@@ -169,7 +192,7 @@ export default function VoiceCharacter() {
       console.error("playBufferedSpeech error:", error);
       finishPlayback();
     }
-  }, [clearRecordingBuffer, finishPlayback, pauseMonitoring, setState]);
+  }, [clearRecordingBuffer, finishPlayback, renderDetunedBuffer, setState]);
 
   const handleAudioChunk = useCallback<AudioChunkHandler>(
     (event) => {
