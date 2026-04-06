@@ -1,11 +1,4 @@
-import {
-  Fit,
-  RiveView,
-  useRive,
-  useRiveFile,
-  useRiveNumber,
-  useViewModelInstance,
-} from "@rive-app/react-native";
+import { Fit, RiveView, useRive, useRiveFile } from "@rive-app/react-native";
 import React, { useCallback, useEffect, useRef } from "react";
 import { StyleSheet, View } from "react-native";
 import {
@@ -23,7 +16,7 @@ AudioManager.setAudioSessionOptions({
 
 const START_VOLUME_THRESHOLD = 0.02;
 const CONTINUE_VOLUME_THRESHOLD = 0.012;
-const SILENCE_TIMEOUT_MS = 1000;
+const SILENCE_TIMEOUT_MS = 700;
 const PRE_ROLL_MS = 180;
 const END_PADDING_MS = 220;
 const RESUME_GUARD_MS = 250;
@@ -31,14 +24,14 @@ const DETUNE_CENTS = 700;
 const MONITOR_BUFFER_LENGTH = 1024;
 const MONITOR_CHANNEL_COUNT = 1;
 
-type CharacterState = "idle" | "listening" | "playing";
-type RecorderStatus = "inactive" | "recording" | "paused";
-
-const STATE_INDEX: Record<CharacterState, number> = {
-  idle: 0,
-  listening: 1,
-  playing: 2,
+const CharacterStates = {
+  Check: "Check",
+  Hear: "Hear",
+  Talk: "Talk",
 };
+
+type CharacterState = keyof typeof CharacterStates;
+type RecorderStatus = "inactive" | "recording" | "paused";
 
 type AudioChunkHandler = Parameters<AudioRecorder["onAudioReady"]>[1];
 
@@ -47,19 +40,12 @@ export default function VoiceCharacter() {
   const { riveFile } = useRiveFile(require("../assets/rive/hear_and_talk.riv"));
   const { riveViewRef, setHybridRef } = useRive();
 
-  const { instance: viewModelInstance } = useViewModelInstance(riveFile, {
-    onInit: (instance) =>
-      instance.numberProperty("state")?.set(STATE_INDEX.idle),
-  });
-
-  const { setValue: setRiveState } = useRiveNumber("state", viewModelInstance);
-
   const audioCtxRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const playbackSourceRef = useRef<ReturnType<
     AudioContext["createBufferSource"]
   > | null>(null);
-  const stateRef = useRef<CharacterState>("idle");
+  const stateRef = useRef<CharacterState>("Check");
   const recorderStatusRef = useRef<RecorderStatus>("inactive");
   const preRollChunksRef = useRef<Float32Array[]>([]);
   const preRollFramesRef = useRef(0);
@@ -69,13 +55,19 @@ export default function VoiceCharacter() {
   const lastVoiceAtRef = useRef(0);
   const ignoreInputUntilRef = useRef(0);
 
+  const resetInputs = useCallback(() => {
+    Object.keys(CharacterStates).forEach((key) => {
+      riveViewRef?.setBooleanInputValue(key, false);
+    });
+  }, [riveViewRef]);
+
   const setState = useCallback(
     (next: CharacterState) => {
       stateRef.current = next;
-      setRiveState(STATE_INDEX[next]);
-      riveViewRef?.play();
+      resetInputs();
+      riveViewRef?.setBooleanInputValue(next, true);
     },
-    [riveViewRef, setRiveState],
+    [riveViewRef],
   );
 
   const clearRecordingBuffer = useCallback(() => {
@@ -116,7 +108,7 @@ export default function VoiceCharacter() {
     clearRecordingBuffer();
     clearPreRollBuffer();
     ignoreInputUntilRef.current = Date.now() + RESUME_GUARD_MS;
-    setState("idle");
+    setState("Check");
   }, [clearPreRollBuffer, clearRecordingBuffer, setState]);
 
   const renderDetunedBuffer = useCallback(
@@ -165,7 +157,7 @@ export default function VoiceCharacter() {
 
     if (!ctx || recordedFramesRef.current === 0) {
       clearRecordingBuffer();
-      setState("idle");
+      setState("Check");
       return;
     }
 
@@ -198,11 +190,11 @@ export default function VoiceCharacter() {
 
       if (writeOffset === 0) {
         clearRecordingBuffer();
-        setState("idle");
+        setState("Check");
         return;
       }
 
-      setState("playing");
+      setState("Talk");
 
       const renderedBuffer = await renderDetunedBuffer(
         playbackBuffer,
@@ -231,7 +223,7 @@ export default function VoiceCharacter() {
         return;
       }
 
-      if (stateRef.current === "playing") {
+      if (stateRef.current === "Talk") {
         return;
       }
 
@@ -248,7 +240,7 @@ export default function VoiceCharacter() {
       const rms = Math.sqrt(sumSquares / Math.max(chunk.length, 1));
       const now = Date.now();
 
-      if (stateRef.current === "idle") {
+      if (stateRef.current === "Check") {
         if (rms < START_VOLUME_THRESHOLD) {
           return;
         }
@@ -258,11 +250,11 @@ export default function VoiceCharacter() {
         lastVoiceFrameRef.current = recordedFramesRef.current;
         lastVoiceAtRef.current = now;
         clearPreRollBuffer();
-        setState("listening");
+        setState("Hear");
         return;
       }
 
-      if (stateRef.current !== "listening") {
+      if (stateRef.current !== "Hear") {
         return;
       }
 
@@ -394,14 +386,13 @@ export default function VoiceCharacter() {
 
   return (
     <View style={styles.container}>
-      {riveFile && viewModelInstance && (
+      {riveFile && (
         <RiveView
           hybridRef={setHybridRef}
           file={riveFile}
-          fit={Fit.Layout}
+          fit={Fit.Contain}
           style={styles.character}
           autoPlay={true}
-          dataBind={viewModelInstance}
         />
       )}
     </View>
@@ -411,12 +402,12 @@ export default function VoiceCharacter() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000",
+    backgroundColor: "#d6e2ea",
     alignItems: "center",
     justifyContent: "center",
   },
   character: {
     width: "100%",
-    height: 400,
+    height: "100%",
   },
 });
