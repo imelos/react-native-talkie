@@ -22,6 +22,9 @@ const RESUME_GUARD_MS = 250;
 const DETUNE_CENTS = 700;
 const MONITOR_BUFFER_LENGTH = 1024;
 const MONITOR_CHANNEL_COUNT = 1;
+const LEADING_VOICE_WINDOW_SIZE = 256;
+const TALK_ANIMATION_LEAD_MS = 40;
+const PLAYBACK_SCHEDULE_AHEAD_MS = 30;
 
 const CharacterStates = {
   Check: "Check",
@@ -52,6 +55,9 @@ export default function VoiceCharacter() {
   const lastVoiceAtRef = useRef(0);
   const ignoreInputUntilRef = useRef(0);
   const preparingPlaybackRef = useRef(false);
+  const talkStateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const resetInputs = useCallback(() => {
     Object.keys(CharacterStates).forEach((key) => {
@@ -102,6 +108,10 @@ export default function VoiceCharacter() {
   }, []);
 
   const finishPlayback = useCallback(() => {
+    if (talkStateTimeoutRef.current) {
+      clearTimeout(talkStateTimeoutRef.current);
+      talkStateTimeoutRef.current = null;
+    }
     preparingPlaybackRef.current = false;
     playbackSourceRef.current = null;
     clearRecordingBuffer();
@@ -151,6 +161,33 @@ export default function VoiceCharacter() {
     [],
   );
 
+  const findLeadingVoiceOffset = useCallback((audioData: Float32Array) => {
+    if (audioData.length === 0) {
+      return 0;
+    }
+
+    for (
+      let start = 0;
+      start < audioData.length;
+      start += LEADING_VOICE_WINDOW_SIZE
+    ) {
+      const end = Math.min(start + LEADING_VOICE_WINDOW_SIZE, audioData.length);
+      let sumSquares = 0;
+
+      for (let index = start; index < end; index += 1) {
+        const sample = audioData[index];
+        sumSquares += sample * sample;
+      }
+
+      const rms = Math.sqrt(sumSquares / Math.max(end - start, 1));
+      if (rms >= VOLUME_THRESHOLD) {
+        return start;
+      }
+    }
+
+    return 0;
+  }, []);
+
   const playBufferedSpeech = useCallback(async () => {
     const ctx = audioCtxRef.current;
 
@@ -179,7 +216,7 @@ export default function VoiceCharacter() {
         framesToKeep,
         ctx.sampleRate,
       );
-      const output = playbackBuffer.getChannelData(0);
+      const playbackData = playbackBuffer.getChannelData(0);
 
       let writeOffset = 0;
 
@@ -189,7 +226,7 @@ export default function VoiceCharacter() {
         }
 
         const frames = Math.min(chunk.length, framesToKeep - writeOffset);
-        output.set(chunk.subarray(0, frames), writeOffset);
+        playbackData.set(chunk.subarray(0, frames), writeOffset);
         writeOffset += frames;
       }
 
@@ -214,13 +251,40 @@ export default function VoiceCharacter() {
       source.onEnded = finishPlayback;
 
       playbackSourceRef.current = source;
-      setState("Talk");
-      source.start();
+      const renderedData = renderedBuffer.getChannelData(0);
+      const voicedOffsetFrames = findLeadingVoiceOffset(renderedData);
+      const startAt = ctx.currentTime + PLAYBACK_SCHEDULE_AHEAD_MS / 1000;
+      const sourceLatencyMs = Math.max(source.getLatency() * 1000, 0);
+      const talkDelayMs = Math.max(
+        PLAYBACK_SCHEDULE_AHEAD_MS +
+          sourceLatencyMs +
+          (voicedOffsetFrames / ctx.sampleRate) * 1000 -
+          TALK_ANIMATION_LEAD_MS,
+        0,
+      );
+
+      if (talkStateTimeoutRef.current) {
+        clearTimeout(talkStateTimeoutRef.current);
+      }
+      talkStateTimeoutRef.current = setTimeout(() => {
+        talkStateTimeoutRef.current = null;
+        if (playbackSourceRef.current === source) {
+          setState("Talk");
+        }
+      }, talkDelayMs);
+
+      source.start(startAt, voicedOffsetFrames / ctx.sampleRate);
     } catch (error) {
       console.error("playBufferedSpeech error:", error);
       finishPlayback();
     }
-  }, [clearRecordingBuffer, finishPlayback, renderDetunedBuffer, setState]);
+  }, [
+    clearRecordingBuffer,
+    finishPlayback,
+    findLeadingVoiceOffset,
+    renderDetunedBuffer,
+    setState,
+  ]);
 
   const handleAudioChunk = useCallback<AudioChunkHandler>(
     (event) => {
@@ -245,7 +309,7 @@ export default function VoiceCharacter() {
       const now = Date.now();
 
       if (stateRef.current === "Check") {
-        appendPreRollChunk(chunk, event.sampleRate);
+        appendPreRollChunk(chunk, event.buffer.sampleRate);
 
         if (rms < VOLUME_THRESHOLD) {
           return;
@@ -354,6 +418,11 @@ export default function VoiceCharacter() {
 
     return () => {
       isMounted = false;
+
+      if (talkStateTimeoutRef.current) {
+        clearTimeout(talkStateTimeoutRef.current);
+        talkStateTimeoutRef.current = null;
+      }
 
       const source = playbackSourceRef.current;
       if (source) {
