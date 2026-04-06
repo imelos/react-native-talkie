@@ -32,9 +32,8 @@ const DETUNE_CENTS = 700;
 const MONITOR_BUFFER_LENGTH = 1024;
 const MONITOR_CHANNEL_COUNT = 1;
 const LEADING_VOICE_WINDOW_SIZE = 256;
-const TALK_ANIMATION_LEAD_MS = 350;
-const TALK_ANIMATION_TAIL_MS = 300;
-const PLAYBACK_SCHEDULE_AHEAD_MS = 70;
+const SOUND_AFTER_TALK_MS = 900;
+const TALK_ANIMATION_TAIL_MS = 250;
 
 const CharacterStates = {
   Check: "Check",
@@ -311,15 +310,6 @@ export default function VoiceCharacter() {
       playbackSourceRef.current = source;
       const renderedData = renderedBuffer.getChannelData(0);
       const voicedOffsetFrames = findLeadingVoiceOffset(renderedData);
-      const startAt = ctx.currentTime + PLAYBACK_SCHEDULE_AHEAD_MS / 1000;
-      const sourceLatencyMs = Math.max(source.getLatency() * 1000, 0);
-      const talkDelayMs = Math.max(
-        PLAYBACK_SCHEDULE_AHEAD_MS +
-          sourceLatencyMs +
-          (voicedOffsetFrames / ctx.sampleRate) * 1000 -
-          TALK_ANIMATION_LEAD_MS,
-        0,
-      );
 
       if (talkStateTimeoutRef.current) {
         clearTimeout(talkStateTimeoutRef.current);
@@ -329,9 +319,12 @@ export default function VoiceCharacter() {
         if (playbackSourceRef.current === source) {
           setState("Talk");
         }
-      }, talkDelayMs);
+      }, 0);
 
-      source.start(startAt, voicedOffsetFrames / ctx.sampleRate);
+      source.start(
+        ctx.currentTime + SOUND_AFTER_TALK_MS / 1000,
+        voicedOffsetFrames / ctx.sampleRate,
+      );
     } catch (error) {
       console.error("playBufferedSpeech error:", error);
       finishPlayback();
