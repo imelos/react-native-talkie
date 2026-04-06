@@ -25,7 +25,7 @@ AudioManager.setAudioSessionOptions({
 const START_VOICE_THRESHOLD = 0.02;
 const CONTINUE_VOICE_THRESHOLD = 0.012;
 const SILENCE_TIMEOUT_MS = 1000;
-const PRE_ROLL_MS = 180;
+const PRE_ROLL_MS = 720;
 const END_PADDING_MS = 320;
 const RESUME_GUARD_MS = 250;
 const DETUNE_CENTS = 700;
