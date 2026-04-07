@@ -141,7 +141,13 @@ export default function VoiceCharacter() {
       talkStateResetTimeoutRef.current = null;
     }
     preparingPlaybackRef.current = false;
+    const source = playbackSourceRef.current;
+    if (source) {
+      source.onEnded = null;
+      source.disconnect();
+    }
     playbackSourceRef.current = null;
+
     clearRecordingBuffer();
     clearPreRollBuffer();
     ignoreInputUntilRef.current = Date.now() + RESUME_GUARD_MS;
