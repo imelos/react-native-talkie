@@ -210,33 +210,6 @@ export default function VoiceCharacter() {
     [],
   );
 
-  const findLeadingVoiceOffset = useCallback((audioData: Float32Array) => {
-    if (audioData.length === 0) {
-      return 0;
-    }
-
-    for (
-      let start = 0;
-      start < audioData.length;
-      start += LEADING_VOICE_WINDOW_SIZE
-    ) {
-      const end = Math.min(start + LEADING_VOICE_WINDOW_SIZE, audioData.length);
-      let sumSquares = 0;
-
-      for (let index = start; index < end; index += 1) {
-        const sample = audioData[index];
-        sumSquares += sample * sample;
-      }
-
-      const rms = Math.sqrt(sumSquares / Math.max(end - start, 1));
-      if (rms >= CONTINUE_VOICE_THRESHOLD) {
-        return start;
-      }
-    }
-
-    return 0;
-  }, []);
-
   const playBufferedSpeech = useCallback(async () => {
     const ctx = audioCtxRef.current;
 
@@ -324,7 +297,6 @@ export default function VoiceCharacter() {
   }, [
     clearRecordingBuffer,
     finishPlayback,
-    findLeadingVoiceOffset,
     renderDetunedBuffer,
     setCharacterState,
   ]);
@@ -566,6 +538,33 @@ export default function VoiceCharacter() {
       )}
     </View>
   );
+}
+
+function findLeadingVoiceOffset(audioData: Float32Array) {
+  if (audioData.length === 0) {
+    return 0;
+  }
+
+  for (
+    let start = 0;
+    start < audioData.length;
+    start += LEADING_VOICE_WINDOW_SIZE
+  ) {
+    const end = Math.min(start + LEADING_VOICE_WINDOW_SIZE, audioData.length);
+    let sumSquares = 0;
+
+    for (let index = start; index < end; index += 1) {
+      const sample = audioData[index];
+      sumSquares += sample * sample;
+    }
+
+    const rms = Math.sqrt(sumSquares / Math.max(end - start, 1));
+    if (rms >= CONTINUE_VOICE_THRESHOLD) {
+      return start;
+    }
+  }
+
+  return 0;
 }
 
 const styles = StyleSheet.create({
