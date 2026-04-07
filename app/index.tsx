@@ -50,9 +50,6 @@ export default function VoiceCharacter() {
   const { riveRef, riveViewRef, setHybridRef } = useRive();
   const [isAudioReady, setIsAudioReady] = useState(false);
   const [needsPermission, setNeedsPermission] = useState(false);
-  const didInitAudioRef = useRef(false);
-  const isMountedRef = useRef(true);
-  const isInitializingAudioRef = useRef(false);
   const isRiveReady = riveViewRef !== null;
 
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -327,97 +324,88 @@ export default function VoiceCharacter() {
     ],
   );
 
-  const initAudio = useCallback(async () => {
-    if (isInitializingAudioRef.current) {
-      return;
-    }
-
-    isInitializingAudioRef.current = true;
-    try {
-      setNeedsPermission(false);
-      setIsAudioReady(false);
-
-      const permission = await AudioManager.requestRecordingPermissions();
-
-      if (permission !== "Granted") {
-        console.warn("Microphone permission is not granted");
-        if (isMountedRef.current) {
-          setNeedsPermission(true);
-          Alert.alert(
-            "Microphone access needed",
-            "Microphone access was denied. You can enable it in the app settings.",
-          );
-        }
-        return;
-      }
-
-      const sessionActivated = await AudioManager.setAudioSessionActivity(true);
-
-      if (!sessionActivated) {
-        console.warn("Could not activate audio session");
-        return;
-      }
-
-      const ctx = new AudioContext();
-      await ctx.resume();
-
-      const recorder = new AudioRecorder();
-      recorder.onError((error) => {
-        console.error("AudioRecorder error:", error.message);
-      });
-
-      const callbackResult = recorder.onAudioReady(
-        {
-          sampleRate: ctx.sampleRate,
-          bufferLength: MONITOR_BUFFER_LENGTH,
-          channelCount: MONITOR_CHANNEL_COUNT,
-        },
-        handleAudioChunk,
-      );
-
-      if (callbackResult.status === "error") {
-        console.warn(callbackResult.message);
-        await ctx.close();
-        return;
-      }
-
-      const startResult = recorder.start();
-
-      if (startResult.status === "error") {
-        console.warn(startResult.message);
-        recorder.clearOnAudioReady();
-        await ctx.close();
-        return;
-      }
-
-      if (!isMountedRef.current) {
-        recorder.stop();
-        recorder.clearOnAudioReady();
-        recorder.clearOnError();
-        await ctx.close();
-        return;
-      }
-
-      audioCtxRef.current = ctx;
-      recorderRef.current = recorder;
-      setIsAudioReady(true);
-    } catch (error) {
-      console.error("Audio init error:", error);
-    } finally {
-      isInitializingAudioRef.current = false;
-    }
-  }, [handleAudioChunk]);
-
   useEffect(() => {
-    if (didInitAudioRef.current) {
-      return;
-    }
-    didInitAudioRef.current = true;
-    isMountedRef.current = true;
+    let cancelled = false;
+
+    const initAudio = async () => {
+      try {
+        setNeedsPermission(false);
+        setIsAudioReady(false);
+
+        const permission = await AudioManager.requestRecordingPermissions();
+
+        if (permission !== "Granted") {
+          console.warn("Microphone permission is not granted");
+          if (!cancelled) {
+            setNeedsPermission(true);
+            Alert.alert(
+              "Microphone access needed",
+              "Microphone access was denied. You can enable it in the app settings.",
+            );
+          }
+          return;
+        }
+
+        const sessionActivated =
+          await AudioManager.setAudioSessionActivity(true);
+
+        if (!sessionActivated) {
+          console.warn("Could not activate audio session");
+          return;
+        }
+
+        const ctx = new AudioContext();
+        await ctx.resume();
+
+        const recorder = new AudioRecorder();
+        recorder.onError((error) => {
+          console.error("AudioRecorder error:", error.message);
+        });
+
+        const callbackResult = recorder.onAudioReady(
+          {
+            sampleRate: ctx.sampleRate,
+            bufferLength: MONITOR_BUFFER_LENGTH,
+            channelCount: MONITOR_CHANNEL_COUNT,
+          },
+          handleAudioChunk,
+        );
+
+        if (callbackResult.status === "error") {
+          console.warn(callbackResult.message);
+          await ctx.close();
+          return;
+        }
+
+        const startResult = recorder.start();
+
+        if (startResult.status === "error") {
+          console.warn(startResult.message);
+          recorder.clearOnAudioReady();
+          await ctx.close();
+          return;
+        }
+
+        if (cancelled) {
+          recorder.stop();
+          recorder.clearOnAudioReady();
+          recorder.clearOnError();
+          await ctx.close();
+          return;
+        }
+
+        audioCtxRef.current = ctx;
+        recorderRef.current = recorder;
+        setIsAudioReady(true);
+      } catch (error) {
+        console.error("Audio init error:", error);
+      }
+    };
+
     void initAudio();
 
     return () => {
-      isMountedRef.current = false;
+      cancelled = true;
 
       if (talkStateTimeoutRef.current) {
         clearTimeout(talkStateTimeoutRef.current);
@@ -445,9 +433,6 @@ export default function VoiceCharacter() {
       }
 
       recorderRef.current = null;
-      setIsAudioReady(false);
-      setNeedsPermission(false);
-      isInitializingAudioRef.current = false;
       clearRecordingBuffer();
       clearPreRollBuffer();
 
@@ -459,7 +444,7 @@ export default function VoiceCharacter() {
 
       void AudioManager.setAudioSessionActivity(false);
     };
-  }, [clearPreRollBuffer, clearRecordingBuffer, initAudio]);
+  }, [clearPreRollBuffer, clearRecordingBuffer, handleAudioChunk]);
 
   return (
     <View style={styles.container}>
