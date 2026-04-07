@@ -47,14 +47,13 @@ type AudioChunkHandler = Parameters<AudioRecorder["onAudioReady"]>[1];
 
 export default function VoiceCharacter() {
   const { riveFile } = useRiveFile(require("../assets/rive/hear_and_talk.riv"));
-  const { riveViewRef, setHybridRef } = useRive();
+  const { riveRef, riveViewRef, setHybridRef } = useRive();
   const [isAudioReady, setIsAudioReady] = useState(false);
-  const [isRiveReady, setIsRiveReady] = useState(false);
   const [needsPermission, setNeedsPermission] = useState(false);
   const didInitAudioRef = useRef(false);
   const isMountedRef = useRef(true);
   const isInitializingAudioRef = useRef(false);
-  const riveInputRef = useRef<typeof riveViewRef>(null);
+  const isRiveReady = riveViewRef !== null;
 
   const audioCtxRef = useRef<AudioContext | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
@@ -77,34 +76,27 @@ export default function VoiceCharacter() {
     null,
   );
 
-  useEffect(() => {
-    riveInputRef.current = riveViewRef;
-    setIsRiveReady(Boolean(riveViewRef));
-    if (!riveViewRef) {
-      return;
-    }
-
-    // Rive can mount after audio state changes, so reapply the current state here.
-    Object.keys(CharacterStates).forEach((key) => {
-      riveViewRef.setBooleanInputValue(key, false);
-    });
-    riveViewRef.setBooleanInputValue(stateRef.current, true);
-  }, [riveViewRef]);
-
   const resetInputs = useCallback(() => {
     Object.keys(CharacterStates).forEach((key) => {
-      riveInputRef.current?.setBooleanInputValue(key, false);
+      riveRef.current?.setBooleanInputValue(key, false);
     });
   }, []);
 
-  const setState = useCallback(
+  const setCharacterState = useCallback(
     (next: CharacterState) => {
       stateRef.current = next;
       resetInputs();
-      riveInputRef.current?.setBooleanInputValue(next, true);
+      riveRef.current?.setBooleanInputValue(next, true);
     },
-    [resetInputs],
+    [resetInputs, riveRef],
   );
+
+  useEffect(() => {
+    if (!riveViewRef) {
+      return;
+    }
+    setCharacterState(stateRef.current);
+  }, [riveViewRef]);
 
   const clearRecordingBuffer = useCallback(() => {
     chunksRef.current = [];
@@ -153,8 +145,8 @@ export default function VoiceCharacter() {
     clearRecordingBuffer();
     clearPreRollBuffer();
     ignoreInputUntilRef.current = Date.now() + RESUME_GUARD_MS;
-    setState("Check");
-  }, [clearPreRollBuffer, clearRecordingBuffer, setState]);
+    setCharacterState("Check");
+  }, [clearPreRollBuffer, clearRecordingBuffer, setCharacterState]);
 
   const finishPlayback = useCallback(() => {
     if (talkStateTimeoutRef.current) {
@@ -254,7 +246,7 @@ export default function VoiceCharacter() {
 
     if (!ctx || recordedFramesRef.current === 0) {
       clearRecordingBuffer();
-      setState("Check");
+      setCharacterState("Check");
       return;
     }
 
@@ -290,7 +282,7 @@ export default function VoiceCharacter() {
       if (writeOffset === 0) {
         preparingPlaybackRef.current = false;
         clearRecordingBuffer();
-        setState("Check");
+        setCharacterState("Check");
         return;
       }
 
@@ -317,7 +309,7 @@ export default function VoiceCharacter() {
       talkStateTimeoutRef.current = setTimeout(() => {
         talkStateTimeoutRef.current = null;
         if (playbackSourceRef.current === source) {
-          setState("Talk");
+          setCharacterState("Talk");
         }
       }, 0);
 
@@ -334,7 +326,7 @@ export default function VoiceCharacter() {
     finishPlayback,
     findLeadingVoiceOffset,
     renderDetunedBuffer,
-    setState,
+    setCharacterState,
   ]);
 
   const handleAudioChunk = useCallback<AudioChunkHandler>(
@@ -371,7 +363,7 @@ export default function VoiceCharacter() {
         lastVoiceFrameRef.current = recordedFramesRef.current;
         lastVoiceAtRef.current = now;
         clearPreRollBuffer();
-        setState("Hear");
+        setCharacterState("Hear");
         return;
       }
 
@@ -395,7 +387,12 @@ export default function VoiceCharacter() {
         void playBufferedSpeech();
       }
     },
-    [appendPreRollChunk, clearPreRollBuffer, playBufferedSpeech, setState],
+    [
+      appendPreRollChunk,
+      clearPreRollBuffer,
+      playBufferedSpeech,
+      setCharacterState,
+    ],
   );
 
   const initAudio = useCallback(async () => {
@@ -517,7 +514,6 @@ export default function VoiceCharacter() {
 
       recorderRef.current = null;
       setIsAudioReady(false);
-      setIsRiveReady(false);
       setNeedsPermission(false);
       isInitializingAudioRef.current = false;
       clearRecordingBuffer();
