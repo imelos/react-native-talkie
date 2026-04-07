@@ -42,7 +42,7 @@ const CharacterStates = {
 } as const;
 
 type CharacterState = (typeof CharacterStates)[keyof typeof CharacterStates];
-const CHARACTER_STATE_KEYS = Object.keys(CharacterStates) as CharacterState[];
+const CHARACTER_STATE_KEYS = Object.values(CharacterStates) as CharacterState[];
 
 type AudioChunkHandler = Parameters<AudioRecorder["onAudioReady"]>[1];
 
