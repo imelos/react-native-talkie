@@ -92,11 +92,11 @@ export default function VoiceCharacter() {
   );
 
   useEffect(() => {
-    if (!riveViewRef) {
+    if (!isRiveReady) {
       return;
     }
     setCharacterState(stateRef.current);
-  }, [riveViewRef]);
+  }, [isRiveReady]);
 
   const clearRecordingBuffer = useCallback(() => {
     chunksRef.current = [];
