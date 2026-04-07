@@ -42,6 +42,7 @@ const CharacterStates = {
 } as const;
 
 type CharacterState = (typeof CharacterStates)[keyof typeof CharacterStates];
+const CHARACTER_STATE_KEYS = Object.keys(CharacterStates) as CharacterState[];
 
 type AudioChunkHandler = Parameters<AudioRecorder["onAudioReady"]>[1];
 
@@ -74,7 +75,7 @@ export default function VoiceCharacter() {
   );
 
   const resetInputs = useCallback(() => {
-    Object.keys(CharacterStates).forEach((key) => {
+    CHARACTER_STATE_KEYS.forEach((key) => {
       riveRef.current?.setBooleanInputValue(key, false);
     });
   }, [riveRef]);
@@ -129,14 +130,8 @@ export default function VoiceCharacter() {
   }, []);
 
   const resetAfterPlayback = useCallback(() => {
-    if (talkStateTimeoutRef.current) {
-      clearTimeout(talkStateTimeoutRef.current);
-      talkStateTimeoutRef.current = null;
-    }
-    if (talkStateResetTimeoutRef.current) {
-      clearTimeout(talkStateResetTimeoutRef.current);
-      talkStateResetTimeoutRef.current = null;
-    }
+    clearTimeoutRef(talkStateTimeoutRef);
+    clearTimeoutRef(talkStateResetTimeoutRef);
     preparingPlaybackRef.current = false;
     const source = playbackSourceRef.current;
     if (source) {
@@ -152,14 +147,8 @@ export default function VoiceCharacter() {
   }, [clearPreRollBuffer, clearRecordingBuffer, setCharacterState]);
 
   const finishPlayback = useCallback(() => {
-    if (talkStateTimeoutRef.current) {
-      clearTimeout(talkStateTimeoutRef.current);
-      talkStateTimeoutRef.current = null;
-    }
-    if (talkStateResetTimeoutRef.current) {
-      clearTimeout(talkStateResetTimeoutRef.current);
-      talkStateResetTimeoutRef.current = null;
-    }
+    clearTimeoutRef(talkStateTimeoutRef);
+    clearTimeoutRef(talkStateResetTimeoutRef);
 
     if (stateRef.current !== "Talk" || TALK_ANIMATION_TAIL_MS <= 0) {
       resetAfterPlayback();
@@ -238,9 +227,7 @@ export default function VoiceCharacter() {
       const renderedData = renderedBuffer.getChannelData(0);
       const voicedOffsetFrames = findLeadingVoiceOffset(renderedData);
 
-      if (talkStateTimeoutRef.current) {
-        clearTimeout(talkStateTimeoutRef.current);
-      }
+      clearTimeoutRef(talkStateTimeoutRef);
       talkStateTimeoutRef.current = setTimeout(() => {
         talkStateTimeoutRef.current = null;
         if (playbackSourceRef.current === source) {
@@ -271,13 +258,7 @@ export default function VoiceCharacter() {
       const chunk = new Float32Array(event.numFrames);
       event.buffer.copyFromChannel(chunk, 0);
 
-      let sumSquares = 0;
-      for (let index = 0; index < chunk.length; index += 1) {
-        const sample = chunk[index];
-        sumSquares += sample * sample;
-      }
-
-      const rms = Math.sqrt(sumSquares / Math.max(chunk.length, 1));
+      const rms = getRms(chunk);
       const now = Date.now();
 
       if (stateRef.current === "Check") {
@@ -328,6 +309,10 @@ export default function VoiceCharacter() {
     let cancelled = false;
 
     const initAudio = async () => {
+      let sessionActive = false;
+      let ctx: AudioContext | null = null;
+      let recorder: AudioRecorder | null = null;
+
       try {
         setNeedsPermission(false);
         setIsAudioReady(false);
@@ -346,6 +331,10 @@ export default function VoiceCharacter() {
           return;
         }
 
+        if (cancelled) {
+          return;
+        }
+
         const sessionActivated =
           await AudioManager.setAudioSessionActivity(true);
 
@@ -354,10 +343,18 @@ export default function VoiceCharacter() {
           return;
         }
 
-        const ctx = new AudioContext();
-        await ctx.resume();
+        sessionActive = true;
+        if (cancelled) {
+          return;
+        }
 
-        const recorder = new AudioRecorder();
+        ctx = new AudioContext();
+        await ctx.resume();
+        if (cancelled) {
+          return;
+        }
+
+        recorder = new AudioRecorder();
         recorder.onError((error) => {
           console.error("AudioRecorder error:", error.message);
         });
@@ -373,7 +370,6 @@ export default function VoiceCharacter() {
 
         if (callbackResult.status === "error") {
           console.warn(callbackResult.message);
-          await ctx.close();
           return;
         }
 
@@ -381,24 +377,33 @@ export default function VoiceCharacter() {
 
         if (startResult.status === "error") {
           console.warn(startResult.message);
-          recorder.clearOnAudioReady();
-          await ctx.close();
           return;
         }
 
         if (cancelled) {
-          recorder.stop();
-          recorder.clearOnAudioReady();
-          recorder.clearOnError();
-          await ctx.close();
           return;
         }
 
         audioCtxRef.current = ctx;
         recorderRef.current = recorder;
+        ctx = null;
+        recorder = null;
+        sessionActive = false;
         setIsAudioReady(true);
       } catch (error) {
         console.error("Audio init error:", error);
+      } finally {
+        if (recorder) {
+          recorder.clearOnAudioReady();
+          recorder.clearOnError();
+          recorder.stop();
+        }
+        if (ctx) {
+          await ctx.close();
+        }
+        if (sessionActive) {
+          await AudioManager.setAudioSessionActivity(false);
+        }
       }
     };
 
@@ -407,14 +412,8 @@ export default function VoiceCharacter() {
     return () => {
       cancelled = true;
 
-      if (talkStateTimeoutRef.current) {
-        clearTimeout(talkStateTimeoutRef.current);
-        talkStateTimeoutRef.current = null;
-      }
-      if (talkStateResetTimeoutRef.current) {
-        clearTimeout(talkStateResetTimeoutRef.current);
-        talkStateResetTimeoutRef.current = null;
-      }
+      clearTimeoutRef(talkStateTimeoutRef);
+      clearTimeoutRef(talkStateResetTimeoutRef);
 
       const source = playbackSourceRef.current;
       if (source) {
@@ -446,6 +445,8 @@ export default function VoiceCharacter() {
     };
   }, [clearPreRollBuffer, clearRecordingBuffer, handleAudioChunk]);
 
+  const isCharacterReady = isAudioReady && isRiveReady;
+
   return (
     <View style={styles.container}>
       {needsPermission && (
@@ -464,7 +465,7 @@ export default function VoiceCharacter() {
           </Pressable>
         </View>
       )}
-      {!needsPermission && (!isAudioReady || !isRiveReady) && (
+      {!needsPermission && !isCharacterReady && (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#264653" />
         </View>
@@ -476,7 +477,7 @@ export default function VoiceCharacter() {
           fit={Fit.Contain}
           style={[
             styles.character,
-            !isAudioReady || !isRiveReady ? styles.characterHidden : null,
+            !isCharacterReady ? styles.characterHidden : null,
           ]}
           autoPlay={true}
         />
@@ -496,20 +497,35 @@ function findLeadingVoiceOffset(audioData: Float32Array) {
     start += LEADING_VOICE_WINDOW_SIZE
   ) {
     const end = Math.min(start + LEADING_VOICE_WINDOW_SIZE, audioData.length);
-    let sumSquares = 0;
-
-    for (let index = start; index < end; index += 1) {
-      const sample = audioData[index];
-      sumSquares += sample * sample;
-    }
-
-    const rms = Math.sqrt(sumSquares / Math.max(end - start, 1));
+    const rms = getRms(audioData.subarray(start, end));
     if (rms >= CONTINUE_VOICE_THRESHOLD) {
       return start;
     }
   }
 
   return 0;
+}
+
+function getRms(audioData: Float32Array) {
+  let sumSquares = 0;
+
+  for (let index = 0; index < audioData.length; index += 1) {
+    const sample = audioData[index];
+    sumSquares += sample * sample;
+  }
+
+  return Math.sqrt(sumSquares / Math.max(audioData.length, 1));
+}
+
+function clearTimeoutRef(
+  timeoutRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>,
+) {
+  if (!timeoutRef.current) {
+    return;
+  }
+
+  clearTimeout(timeoutRef.current);
+  timeoutRef.current = null;
 }
 
 async function renderDetunedBuffer(
