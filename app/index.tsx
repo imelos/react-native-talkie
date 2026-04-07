@@ -80,7 +80,7 @@ export default function VoiceCharacter() {
     Object.keys(CharacterStates).forEach((key) => {
       riveRef.current?.setBooleanInputValue(key, false);
     });
-  }, []);
+  }, [riveRef]);
 
   const setCharacterState = useCallback(
     (next: CharacterState) => {
@@ -96,7 +96,7 @@ export default function VoiceCharacter() {
       return;
     }
     setCharacterState(stateRef.current);
-  }, [isRiveReady]);
+  }, [isRiveReady, setCharacterState]);
 
   const clearRecordingBuffer = useCallback(() => {
     chunksRef.current = [];
@@ -168,47 +168,6 @@ export default function VoiceCharacter() {
       resetAfterPlayback();
     }, TALK_ANIMATION_TAIL_MS);
   }, [resetAfterPlayback]);
-
-  const renderDetunedBuffer = useCallback(
-    async (
-      sourceBuffer: ReturnType<AudioContext["createBuffer"]>,
-      framesToKeep: number,
-      sampleRate: number,
-    ) => {
-      const offlineCtx = new OfflineAudioContext({
-        numberOfChannels: sourceBuffer.numberOfChannels,
-        length: framesToKeep,
-        sampleRate,
-      });
-      const offlineBuffer = offlineCtx.createBuffer(
-        sourceBuffer.numberOfChannels,
-        framesToKeep,
-        sampleRate,
-      );
-
-      for (
-        let channel = 0;
-        channel < sourceBuffer.numberOfChannels;
-        channel += 1
-      ) {
-        offlineBuffer.copyToChannel(
-          sourceBuffer.getChannelData(channel),
-          channel,
-        );
-      }
-
-      const offlineSource = offlineCtx.createBufferSource({
-        pitchCorrection: true,
-      });
-      offlineSource.buffer = offlineBuffer;
-      offlineSource.detune.value = DETUNE_CENTS;
-      offlineSource.connect(offlineCtx.destination);
-      offlineSource.start();
-
-      return offlineCtx.startRendering();
-    },
-    [],
-  );
 
   const playBufferedSpeech = useCallback(async () => {
     const ctx = audioCtxRef.current;
@@ -294,12 +253,7 @@ export default function VoiceCharacter() {
       console.error("playBufferedSpeech error:", error);
       finishPlayback();
     }
-  }, [
-    clearRecordingBuffer,
-    finishPlayback,
-    renderDetunedBuffer,
-    setCharacterState,
-  ]);
+  }, [clearRecordingBuffer, finishPlayback, setCharacterState]);
 
   const handleAudioChunk = useCallback<AudioChunkHandler>(
     (event) => {
@@ -565,6 +519,37 @@ function findLeadingVoiceOffset(audioData: Float32Array) {
   }
 
   return 0;
+}
+
+async function renderDetunedBuffer(
+  sourceBuffer: ReturnType<AudioContext["createBuffer"]>,
+  framesToKeep: number,
+  sampleRate: number,
+) {
+  const offlineCtx = new OfflineAudioContext({
+    numberOfChannels: sourceBuffer.numberOfChannels,
+    length: framesToKeep,
+    sampleRate,
+  });
+  const offlineBuffer = offlineCtx.createBuffer(
+    sourceBuffer.numberOfChannels,
+    framesToKeep,
+    sampleRate,
+  );
+
+  for (let channel = 0; channel < sourceBuffer.numberOfChannels; channel += 1) {
+    offlineBuffer.copyToChannel(sourceBuffer.getChannelData(channel), channel);
+  }
+
+  const offlineSource = offlineCtx.createBufferSource({
+    pitchCorrection: true,
+  });
+  offlineSource.buffer = offlineBuffer;
+  offlineSource.detune.value = DETUNE_CENTS;
+  offlineSource.connect(offlineCtx.destination);
+  offlineSource.start();
+
+  return offlineCtx.startRendering();
 }
 
 const styles = StyleSheet.create({
