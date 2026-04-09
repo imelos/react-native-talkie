@@ -11,12 +11,6 @@ export const LEADING_VOICE_WINDOW_SIZE = 256;
 export const SOUND_AFTER_TALK_MS = 900;
 export const TALK_ANIMATION_TAIL_MS = 120;
 
-export const AUDIO_SESSION_OPTIONS = {
-  iosCategory: "playAndRecord",
-  iosMode: "default",
-  iosOptions: ["defaultToSpeaker"],
-} as const;
-
 export const CharacterStates = {
   Check: "Check",
   Hear: "Hear",
