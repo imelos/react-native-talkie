@@ -64,19 +64,14 @@ export default function VoiceCharacter() {
     null,
   );
 
-  const resetInputs = useCallback(() => {
-    CHARACTER_STATE_KEYS.forEach((key) => {
-      riveRef.current?.setBooleanInputValue(key, false);
-    });
-  }, [riveRef]);
-
   const setCharacterState = useCallback(
     (next: CharacterState) => {
       stateRef.current = next;
-      resetInputs();
-      riveRef.current?.setBooleanInputValue(next, true);
+      CHARACTER_STATE_KEYS.forEach((key) => {
+        riveRef.current?.setBooleanInputValue(key, key === next);
+      });
     },
-    [resetInputs, riveRef],
+    [riveRef],
   );
 
   useEffect(() => {
