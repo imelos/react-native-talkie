@@ -1,14 +1,6 @@
 import { Fit, RiveView, useRive, useRiveFile } from "@rive-app/react-native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Linking,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, StyleSheet, View } from "react-native";
 import {
   AudioContext,
   AudioManager,
@@ -21,6 +13,7 @@ import {
   getRms,
   renderDetunedBuffer,
 } from "./audio";
+import PermissionButton from "./components/PermissionButton";
 import {
   CHARACTER_STATE_KEYS,
   CharacterState,
@@ -442,18 +435,7 @@ export default function VoiceCharacter() {
     <View style={styles.character}>
       {needsPermission && (
         <View style={styles.loaderContainer}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={Linking.openSettings}
-            style={({ pressed }) => [
-              styles.permissionButton,
-              pressed ? styles.permissionButtonPressed : null,
-            ]}
-          >
-            <Text style={styles.permissionButtonText}>
-              GrantMicrophonePermission
-            </Text>
-          </Pressable>
+          <PermissionButton />
         </View>
       )}
       {!needsPermission && !isCharacterReady && (
@@ -482,20 +464,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     ...StyleSheet.absoluteFillObject,
-  },
-  permissionButton: {
-    backgroundColor: "#264653",
-    borderRadius: 999,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-  },
-  permissionButtonPressed: {
-    opacity: 0.85,
-  },
-  permissionButtonText: {
-    color: "#f4f7f9",
-    fontSize: 16,
-    fontWeight: "600",
   },
   character: {
     width: "100%",
