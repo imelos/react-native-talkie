@@ -1,4 +1,5 @@
 import { Fit, RiveView, useRive, useRiveFile } from "@rive-app/react-native";
+
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -67,9 +68,6 @@ export default function VoiceCharacter() {
   const lastVoiceAtRef = useRef(0);
   const ignoreInputUntilRef = useRef(0);
   const preparingPlaybackRef = useRef(false);
-  const talkStateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
   const talkStateResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
@@ -130,7 +128,6 @@ export default function VoiceCharacter() {
   }, []);
 
   const resetAfterPlayback = useCallback(() => {
-    clearTimeoutRef(talkStateTimeoutRef);
     clearTimeoutRef(talkStateResetTimeoutRef);
     preparingPlaybackRef.current = false;
     const source = playbackSourceRef.current;
@@ -147,7 +144,6 @@ export default function VoiceCharacter() {
   }, [clearPreRollBuffer, clearRecordingBuffer, setCharacterState]);
 
   const finishPlayback = useCallback(() => {
-    clearTimeoutRef(talkStateTimeoutRef);
     clearTimeoutRef(talkStateResetTimeoutRef);
 
     if (stateRef.current !== "Talk" || TALK_ANIMATION_TAIL_MS <= 0) {
@@ -227,13 +223,7 @@ export default function VoiceCharacter() {
       const renderedData = renderedBuffer.getChannelData(0);
       const voicedOffsetFrames = findLeadingVoiceOffset(renderedData);
 
-      clearTimeoutRef(talkStateTimeoutRef);
-      talkStateTimeoutRef.current = setTimeout(() => {
-        talkStateTimeoutRef.current = null;
-        if (playbackSourceRef.current === source) {
-          setCharacterState("Talk");
-        }
-      }, 0);
+      setCharacterState("Talk");
 
       source.start(
         ctx.currentTime + SOUND_AFTER_TALK_MS / 1000,
@@ -412,7 +402,6 @@ export default function VoiceCharacter() {
     return () => {
       cancelled = true;
 
-      clearTimeoutRef(talkStateTimeoutRef);
       clearTimeoutRef(talkStateResetTimeoutRef);
 
       const source = playbackSourceRef.current;
