@@ -365,10 +365,6 @@ export default function VoiceCharacter() {
           return;
         }
 
-        if (cancelled) {
-          return;
-        }
-
         audioCtxRef.current = ctx;
         recorderRef.current = recorder;
         ctx = null;
