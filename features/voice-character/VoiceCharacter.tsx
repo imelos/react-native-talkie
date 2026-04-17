@@ -17,6 +17,7 @@ import PermissionButton from "./components/PermissionButton";
 import {
   CHARACTER_STATE_KEYS,
   CharacterState,
+  CharacterStates,
   CONTINUE_VOICE_THRESHOLD,
   END_PADDING_MS,
   MONITOR_BUFFER_LENGTH,
@@ -51,7 +52,7 @@ export default function VoiceCharacter() {
   const playbackSourceRef = useRef<ReturnType<
     AudioContext["createBufferSource"]
   > | null>(null);
-  const stateRef = useRef<CharacterState>("Check");
+  const stateRef = useRef<CharacterState>(CharacterStates.Check);
   const preRollChunksRef = useRef<Float32Array[]>([]);
   const preRollFramesRef = useRef(0);
   const chunksRef = useRef<Float32Array[]>([]);
@@ -130,13 +131,16 @@ export default function VoiceCharacter() {
     clearRecordingBuffer();
     clearPreRollBuffer();
     ignoreInputUntilRef.current = Date.now() + RESUME_GUARD_MS;
-    setCharacterState("Check");
+    setCharacterState(CharacterStates.Check);
   }, [clearPreRollBuffer, clearRecordingBuffer, setCharacterState]);
 
   const finishPlayback = useCallback(() => {
     clearTimeoutRef(talkStateResetTimeoutRef);
 
-    if (stateRef.current !== "Talk" || TALK_ANIMATION_TAIL_MS <= 0) {
+    if (
+      stateRef.current !== CharacterStates.Talk ||
+      TALK_ANIMATION_TAIL_MS <= 0
+    ) {
       resetAfterPlayback();
       return;
     }
@@ -156,7 +160,7 @@ export default function VoiceCharacter() {
 
     if (!ctx || recordedFramesRef.current === 0) {
       clearRecordingBuffer();
-      setCharacterState("Check");
+      setCharacterState(CharacterStates.Check);
       return;
     }
 
@@ -192,7 +196,7 @@ export default function VoiceCharacter() {
       if (writeOffset === 0) {
         preparingPlaybackRef.current = false;
         clearRecordingBuffer();
-        setCharacterState("Check");
+        setCharacterState(CharacterStates.Check);
         return;
       }
 
@@ -213,7 +217,7 @@ export default function VoiceCharacter() {
       const renderedData = renderedBuffer.getChannelData(0);
       const voicedOffsetFrames = findLeadingVoiceOffset(renderedData);
 
-      setCharacterState("Talk");
+      setCharacterState(CharacterStates.Talk);
 
       source.start(
         ctx.currentTime + SOUND_AFTER_TALK_MS / 1000,
@@ -231,7 +235,10 @@ export default function VoiceCharacter() {
         return;
       }
 
-      if (stateRef.current === "Talk" || preparingPlaybackRef.current) {
+      if (
+        stateRef.current === CharacterStates.Talk ||
+        preparingPlaybackRef.current
+      ) {
         return;
       }
 
@@ -241,7 +248,7 @@ export default function VoiceCharacter() {
       const rms = getRms(chunk);
       const now = Date.now();
 
-      if (stateRef.current === "Check") {
+      if (stateRef.current === CharacterStates.Check) {
         appendPreRollChunk(chunk, event.buffer.sampleRate);
 
         if (rms < START_VOICE_THRESHOLD) {
@@ -253,11 +260,11 @@ export default function VoiceCharacter() {
         lastVoiceFrameRef.current = recordedFramesRef.current;
         lastVoiceAtRef.current = now;
         clearPreRollBuffer();
-        setCharacterState("Hear");
+        setCharacterState(CharacterStates.Hear);
         return;
       }
 
-      if (stateRef.current !== "Hear") {
+      if (stateRef.current !== CharacterStates.Hear) {
         return;
       }
 
