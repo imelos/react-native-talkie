@@ -8,6 +8,7 @@ import {
 } from "react-native-audio-api";
 
 import {
+  applyHighPass,
   clearTimeoutRef,
   findLeadingVoiceOffset,
   getRms,
@@ -245,7 +246,9 @@ export default function VoiceCharacter() {
       const chunk = new Float32Array(event.numFrames);
       event.buffer.copyFromChannel(chunk, 0);
 
-      const rms = getRms(chunk);
+      const filtered = applyHighPass(chunk, event.buffer.sampleRate, 100);
+
+      const rms = getRms(filtered);
       const now = Date.now();
 
       if (stateRef.current === CharacterStates.Check) {

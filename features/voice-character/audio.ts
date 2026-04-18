@@ -79,3 +79,25 @@ export async function renderDetunedBuffer(
 
   return offlineCtx.startRendering();
 }
+
+export function applyHighPass(
+  input: Float32Array,
+  sampleRate: number,
+  cutoffHz: number,
+): Float32Array {
+  const dt = 1 / sampleRate;
+  const rc = 1 / (2 * Math.PI * cutoffHz);
+  const alpha = rc / (rc + dt); // ~0.982 at 150 Hz / 44100 Hz
+
+  const output = new Float32Array(input.length);
+  let prev_in = 0;
+  let prev_out = 0;
+
+  for (let i = 0; i < input.length; i++) {
+    output[i] = alpha * (prev_out + input[i] - prev_in);
+    prev_in = input[i];
+    prev_out = output[i];
+  }
+
+  return output;
+}
